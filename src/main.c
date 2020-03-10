@@ -57,10 +57,6 @@ int sendUser(int nsock, struct User* user) {
 }
 #pragma endregion
 #pragma region Server functions
-void sendUser(int nsock) {
-
-}
-
 void srvAddContact(int nsock) {
 
 }

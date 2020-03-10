@@ -49,7 +49,7 @@ struct MessageList {
     struct Message* list;
 };
 
-void groupListDestructor(struct MessageList* messageList) {
+void messageListDestructor(struct MessageList* messageList) {
     for (int i = 0; i < messageList->count; i += 1)
         messageDestructor(messageList->list + i);
     free(messageList->list);
