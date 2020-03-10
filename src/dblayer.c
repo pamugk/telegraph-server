@@ -9,12 +9,14 @@ void groupDestructor(struct Group* group) {
     for (int i = 0; i < group->countOfParticipants; i += 1)
         free(group->participants[i]);
     free(group->participants);
+    free(group);
 }
 
 void groupListDestructor(struct GroupList* groupList) {
     for (int i = 0; i < groupList->count; i += 1)
         groupDestructor(groupList->list[i]);
     free(groupList->list);
+    free(groupList);
 }
 
 void messageDestructor(struct Message* message) {
@@ -22,12 +24,14 @@ void messageDestructor(struct Message* message) {
     free(message->toId);
     free(message->fromId);
     free(message->text);
+    free(message);
 }
 
 void messageListDestructor(struct MessageList* messageList) {
     for (int i = 0; i < messageList->count; i += 1)
         messageDestructor(messageList->list[i]);
     free(messageList->list);
+    free(messageList);
 }
 
 void userDestructor(struct User* user) {
@@ -36,13 +40,16 @@ void userDestructor(struct User* user) {
     free(user->username);
     free(user->name);
     free(user->surname);
-    free(user->biography);
+    if (user->biography != NULL)
+        free(user->biography);
+    free(user);
 }
 
 void userListDestructor(struct UserList* userList) {
     for (int i = 0; i < userList->count; i += 1)
         userDestructor(userList->list[i]);
     free(userList->list);
+    free(userList);
 }
 #pragma endregion
 #pragma region Utils
