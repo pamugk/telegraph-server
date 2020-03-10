@@ -38,7 +38,29 @@ int setupServer(struct Settings s) {
     return sockfd;
 }
 #pragma endregion
+#pragma Auxillary functions
+int sendStr(int nsock, const char* str) {
+	int size = strlen(str);
+	send(nsock, &size, sizeof(int), 0);
+	send(nsock, str, size * sizeof(char), 0);
+	return 0;
+}
+
+int sendUser(int nsock, struct User* user) {
+	sendStr(nsock, user->id);
+	sendStr(nsock, user->phone);
+	sendStr(nsock, user->username);
+	sendStr(nsock, user->name);
+	sendStr(nsock, user->surname);
+	sendStr(nsock, user->biography);
+	return 0;
+}
+#pragma endregion
 #pragma region Server functions
+void sendUser(int nsock) {
+
+}
+
 void srvAddContact(int nsock) {
 
 }
@@ -88,21 +110,17 @@ int srvLogin(int nsock) {
 		perror("recv");
 		return 1;
 	}
-	struct User user = getUser(userId);
+	struct User* user = getUser(userId);
 	enum ServerResponses response = 
-		user.id == NULL ? FAILURE : SUCCESS;
+		user->id == NULL ? FAILURE : SUCCESS;
 	res = send(nsock, &response, sizeof(enum ServerResponses), 0);
 	if (res == -1) {
         perror("send");
 		return 1;
     }
-	if (response == SUCCESS) {
-		res = send(nsock, &user, sizeof(user), 0);
-		if (res == -1) {
-        	perror("send");
-			return 1;
-    	}
-	}
+	if (response == SUCCESS)
+		sendUser(nsock, user);
+	userDestructor(user);
 	return 0;
 }
 
@@ -199,8 +217,10 @@ void handleClient(int nsock) {
 			op = DISCONNECT;
 			break;
 		}
-		if (res == 1)
-			break;
+		}
+		if (res == -1){
+			close(nsock);
+			exit(1);
 		}
 	} while (op != DISCONNECT);
 	close(nsock);
