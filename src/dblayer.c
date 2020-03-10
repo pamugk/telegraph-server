@@ -4,7 +4,8 @@ static PGconn* conn;
 
 #pragma region Destructors
 void groupDestructor(struct Group* group) {
-    free(group->id);
+    if (group->id != NULL)
+        free(group->id);
     free(group->creatorId);
     for (int i = 0; i < group->countOfParticipants; i += 1)
         free(group->participants[i]);
@@ -20,10 +21,12 @@ void groupListDestructor(struct GroupList* groupList) {
 }
 
 void messageDestructor(struct Message* message) {
-    free(message->id);
+    if (message->id != NULL)
+        free(message->id);
     free(message->toId);
     free(message->fromId);
-    free(message->text);
+    if (message->text != NULL)
+        free(message->text);
     free(message);
 }
 
@@ -35,6 +38,8 @@ void messageListDestructor(struct MessageList* messageList) {
 }
 
 void userDestructor(struct User* user) {
+    if (user->id != NULL)
+        free(user->id);
     free(user->id);
     free(user->phone);
     free(user->username);
@@ -337,34 +342,33 @@ char* saveMessage(struct Message* message) {
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         messageId = PQgetvalue(res, 0, 0);
         PQclear(res);
-        struct Message* msg = resendMesssage(message->fromId, message->toId, messageId);
+        message->id = messageId;
+        struct Message* msg = resendMesssage(message);
         messageDestructor(msg);
     }
     PQclear(res);
     return messageId;
 }
 
-int removeMessage(char* fromId, char* toId, char* messageId) {
+int removeMessage(struct Message* message) {
     const char* query =
         "DELETE FROM public.sent_messages "
         "WHERE message_id=$1 AND from_id=$2 AND to_id=$3;";
-    const char* params[] = { messageId, fromId, toId };
+    const char* params[] = { message->id, message->fromId, message->toId };
     PGresult* res = PQexecParams(conn, query, 3, NULL, params, NULL, NULL, 0);
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
 }
 
-struct Message* resendMesssage(char* fromId, char* toId, char* messageId) {
-    struct Message* resentMessage = getMessage(messageId);
+struct Message* resendMesssage(struct Message* message) {
+    struct Message* resentMessage = getMessage(message->id);
     if (resentMessage->id == NULL)
         return resentMessage;
-    resentMessage->fromId = fromId;
-    resentMessage->toId = toId;
     const char* query =
         "INSERT INTO public.sent_messages(message_id, from_id, to_id) "
 	    "VALUES ($1, $2, $3);";
-    const char* params[] = { messageId, fromId, toId };
+    const char* params[] = { message->id, message->fromId, message->toId };
     PGresult* res = PQexecParams(conn, query, 3, NULL, params, NULL, NULL, 0);
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);

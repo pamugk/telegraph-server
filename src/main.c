@@ -39,20 +39,49 @@ int setupServer(struct Settings s) {
 }
 #pragma endregion
 #pragma region Auxillary functions
-int sendStr(int nsock, const char* str) {
+char* doRecieveStr(int sockfd) {
+    int size = 0;
+    recv(sockfd, &size, sizeof(int), 0);
+    char* str = calloc(size, sizeof(char));
+    recv(sockfd, str, size * sizeof(char), 0);
+    return str;
+}
+
+struct Message* doRecieveMessage(int nsock, int recieveHeaderOnly) {
+	struct Message* message = (struct Message*) malloc(sizeof(struct Message));
+	message->id = doRecieveStr(nsock);
+	message->fromId = doRecieveStr(nsock);
+	message->toId = doRecieveStr(nsock);
+    if (recieveHeaderOnly == 0)
+	    message->text = doRecieveStr(nsock);
+	return message;
+}
+
+struct User* doRecieveUser(int sockfd) {
+    struct User* user = (struct User*) malloc(sizeof(struct User));
+    user->id = doRecieveStr(sockfd);
+    user->phone = doRecieveStr(sockfd);
+    user->username = doRecieveStr(sockfd);
+    user->name = doRecieveStr(sockfd);
+    user->surname = doRecieveStr(sockfd);
+    user->biography = doRecieveStr(sockfd);
+    return user;
+}
+
+int doSendStr(int nsock, const char* str) {
 	int size = strlen(str);
 	send(nsock, &size, sizeof(int), 0);
 	send(nsock, str, size * sizeof(char), 0);
 	return 0;
 }
 
-int sendUser(int nsock, struct User* user) {
-	sendStr(nsock, user->id);
-	sendStr(nsock, user->phone);
-	sendStr(nsock, user->username);
-	sendStr(nsock, user->name);
-	sendStr(nsock, user->surname);
-	sendStr(nsock, user->biography);
+int doSendUser(int nsock, struct User* user) {
+	doSendStr(nsock, user->id);
+	doSendStr(nsock, user->phone);
+	doSendStr(nsock, user->username);
+	doSendStr(nsock, user->name);
+	doSendStr(nsock, user->surname);
+	doSendStr(nsock, user->biography);
 	return 0;
 }
 #pragma endregion
@@ -104,9 +133,11 @@ int srvLogin(int nsock) {
 	int res = recv(nsock, userId, 37 * sizeof(char), 0);
 	if (res == -1) {
 		perror("recv");
+		free(userId);
 		return 1;
 	}
 	struct User* user = getUser(userId);
+	free(userId);
 	enum ServerResponses response = 
 		user->id == NULL ? FAILURE : SUCCESS;
 	res = send(nsock, &response, sizeof(enum ServerResponses), 0);
@@ -115,33 +146,124 @@ int srvLogin(int nsock) {
 		return 1;
     }
 	if (response == SUCCESS)
-		sendUser(nsock, user);
+		doSendUser(nsock, user);
 	userDestructor(user);
 	return 0;
 }
 
-void srvRegisterUser(int nsock) {
-
+int srvRegisterUser(int nsock) {
+	printf("Registering a new user.\n");
+	struct User* user = doRecieveUser(nsock);
+	char* registeredUserId = registerUser(user);
+	userDestructor(user);
+    enum ServerResponses response = registeredUserId == NULL ? FAILURE : SUCCESS;
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	if (res == -1) {
+		perror("send");
+		free(registeredUserId);
+		return 1;
+	}
+    if (response == SUCCESS) {
+        doSendStr(nsock, registeredUserId);
+        printf("Done.\n");
+		free(registeredUserId);
+    }
+	else
+    	printf("Failure.\n");
+	return 0;
 }
 
-void srvRemoveGroup(int nsock) {
-
+int srvRemoveGroup(int nsock) {
+    printf("Removing a group.\n");
+    char* groupId = doRecieveStr(nsock);
+    enum ServerResponses response = removeGroup(groupId) == 0 ? SUCCESS : FAILURE;
+	free(groupId);
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+		perror("send");
+		return 1;
+	}
+	if (response == SUCCESS)
+        printf("Done.\n");
+	else
+    	printf("Failure.\n");
+	return 0;
 }
 
-void srvRemoveMessage(int nsock) {
-
+int srvRemoveMessage(int nsock) {
+	printf("Removing a message.\n");
+    struct Message* message = doRecieveMessage(nsock, 1);
+    enum ServerResponses response = removeMessage(message) == 0 ? SUCCESS : FAILURE;
+	messageDestructor(message);
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+		perror("send");
+		return 1;
+	}
+	if (response == SUCCESS)
+        printf("Done.\n");
+	else
+    	printf("Failure.\n");
+    return 0;
 }
 
-void srvRemoveUser(int nsock) {
-
+int srvRemoveUser(int nsock) {
+    printf("Removing a user.\n");
+    char* userId = doRecieveStr(nsock);
+    enum ServerResponses response = removeUser(userId) == 0 ? SUCCESS : FAILURE;
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+		perror("send");
+		return 1;
+	}
+	if (response == SUCCESS) {
+        printf("Done.\n");
+    }
+	else
+    	printf("Failure.\n");
+	free(userId);
+	return 0;
 }
 
-void srvResendMessage(int nsock) {
-
+int srvResendMessage(int nsock) {
+	printf("Resending a message.\n");
+    struct Message* message = doRecieveMessage(nsock, 1);
+    struct Message* msg = resendMesssage(message);
+    enum ServerResponses response = msg->id == NULL ? FAILURE : SUCCESS;
+	messageDestructor(msg);
+	messageDestructor(message);
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+		perror("send");
+		return 1;
+	}
+	if (response == SUCCESS)
+        printf("Done.\n");
+	else
+    	printf("Failure.\n");
+    return 0;
 }
 
-void srvSendMessage(int nsock) {
-
+int srvSendMessage(int nsock) {
+	printf("Sending a message.\n");
+    struct Message* message = doRecieveMessage(nsock, 1);
+    char* messageId = saveMessage(message);
+	messageDestructor(message);
+    enum ServerResponses response = messageId == NULL ? FAILURE : SUCCESS;
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+		perror("send");
+		free(messageId);
+		return 1;
+	}
+	if (response == SUCCESS) {
+		doSendStr(nsock, messageId);
+        printf("Done.\n");
+		free(messageId);
+	}
+	else
+    	printf("Failure.\n");
+    return 0;
 }
 #pragma endregion
 #pragma region Serverside
@@ -191,22 +313,22 @@ void handleClient(int nsock) {
 			res = srvLogin(nsock);
 			break;
 		case REGISTER_USER:
-			srvRegisterUser(nsock);
+			res = srvRegisterUser(nsock);
 			break;
 		case REMOVE_GROUP:
-			srvRemoveGroup(nsock);
+			res = srvRemoveGroup(nsock);
 			break;
 		case REMOVE_MESSAGE:
-			srvRemoveMessage(nsock);
+			res = srvRemoveMessage(nsock);
 			break;
 		case REMOVE_USER:
-			srvRemoveUser(nsock);
+			res = srvRemoveUser(nsock);
 			break;
 		case RESEND_MESSAGE:
-			srvResendMessage(nsock);
+			res = srvResendMessage(nsock);
 			break;
 		case SEND_MESSAGE:
-			srvSendMessage(nsock);
+			res = srvSendMessage(nsock);
 			break;
 		default: {
 			printf("Recieved unknown command");
@@ -214,7 +336,7 @@ void handleClient(int nsock) {
 			break;
 		}
 		}
-		if (res == -1){
+		if (res == 1){
 			close(nsock);
 			exit(1);
 		}
