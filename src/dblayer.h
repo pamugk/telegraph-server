@@ -11,24 +11,14 @@ struct Group {
     char* name;
 };
 
-void groupDestructor(struct Group* group) {
-    free(group->id);
-    free(group->creatorId);
-    for (int i = 0; i < group->countOfParticipants; i += 1)
-        free(group->participants[i]);
-    free(group->participants);
-}
+void groupDestructor(struct Group* group);
 
 struct GroupList {
     int count;
     struct Group** list;
 };
 
-void groupListDestructor(struct GroupList* groupList) {
-    for (int i = 0; i < groupList->count; i += 1)
-        groupDestructor(groupList->list + i);
-    free(groupList->list);
-}
+void groupListDestructor(struct GroupList* groupList);
 
 struct Message {
     char* id;
@@ -37,23 +27,14 @@ struct Message {
     char* text;
 };
 
-void messageDestructor(struct Message* message) {
-    free(message->id);
-    free(message->toId);
-    free(message->fromId);
-    free(message->text);
-}
+void messageDestructor(struct Message* message);
 
 struct MessageList {
     int count;
-    struct Message* list;
+    struct Message** list;
 };
 
-void messageListDestructor(struct MessageList* messageList) {
-    for (int i = 0; i < messageList->count; i += 1)
-        messageDestructor(messageList->list + i);
-    free(messageList->list);
-}
+void messageListDestructor(struct MessageList* messageList);
 
 struct User {
     char* id;
@@ -64,25 +45,14 @@ struct User {
     char* biography;
 };
 
-void userDestructor(struct User* user) {
-    free(user->id);
-    free(user->phone);
-    free(user->username);
-    free(user->name);
-    free(user->surname);
-    free(user->biography);
-}
+void userDestructor(struct User* user);
 
 struct UserList {
     int count;
-    struct User* list;
+    struct User** list;
 };
 
-void groupListDestructor(struct UserList* userList) {
-    for (int i = 0; i < userList->count; i += 1)
-        userDestructor(userList->list + i);
-    free(userList->list);
-}
+void userListDestructor(struct UserList* userList);
 #pragma endregion
 #pragma region Function headers
 int connectToDb(const char*);

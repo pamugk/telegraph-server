@@ -38,7 +38,7 @@ int setupServer(struct Settings s) {
     return sockfd;
 }
 #pragma endregion
-#pragma Auxillary functions
+#pragma region Auxillary functions
 int sendStr(int nsock, const char* str) {
 	int size = strlen(str);
 	send(nsock, &size, sizeof(int), 0);
