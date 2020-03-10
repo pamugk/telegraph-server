@@ -138,9 +138,9 @@ struct Group* getGroupInfo(char* groupId) {
 	    "ON grp.id = group_id;";
     const char* params[] = { groupId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
-    struct Group* group = (struct Group*) malloc(sizeof(struct Group));
-    group->id = NULL;
+    struct Group* group = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        group =  (struct Group*) malloc(sizeof(struct Group));
         group->countOfParticipants = PQntuples(res);
         group->participants = (char**)calloc(group->countOfParticipants, sizeof(char*));
         for(int i = 0; i < group->countOfParticipants; i += 1) {
@@ -158,9 +158,9 @@ struct GroupList* getUserGroups(char* userId) {
         "SELECT group_id FROM users_of_groups WHERE user_id = $1;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
-    struct GroupList* groups = (struct GroupList*)malloc(sizeof(struct GroupList));
-    groups->count = -1;
+    struct GroupList* groups = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        groups = (struct GroupList*)malloc(sizeof(struct GroupList));
         groups->count = PQntuples(res);
         PQclear(res);
         groups->list = (struct Group**)calloc(groups->count, sizeof(struct Group*));
@@ -220,13 +220,15 @@ struct UserList* getContacts(char* userId) {
         "FROM ctcts JOIN public.users ON contact_id = users.id;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
-    struct UserList* users = (struct UserList*)malloc(sizeof(struct UserList));
-    users->count = -1;
+    struct UserList* users = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        users = (struct UserList*)malloc(sizeof(struct UserList));
         users->count = PQntuples(res);
         users->list = (struct User**)calloc(users->count, sizeof(struct User*));
-        for(int i = 0; i < users->count; i += 1)
+        for(int i = 0; i < users->count; i += 1) {
+            users->list[i] = (struct User*)malloc(sizeof(struct User));
             fillUser(users->list[i], i, res);
+        }
     }
     PQclear(res);
     return users;
@@ -239,10 +241,11 @@ struct User* getUser(char* userId) {
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
     printf("%s\n", PQresStatus(PQresultStatus(res)));
-    struct User* user = (struct User*)malloc(sizeof(struct User));
-    user->id = NULL;
-    if (PQresultStatus(res) == PGRES_TUPLES_OK)
+    struct User* user = NULL;
+    if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        user = (struct User*)malloc(sizeof(struct User));
         fillUser(user, 0, res);
+    }
     PQclear(res);
     return user;
 }
@@ -302,9 +305,9 @@ struct Message* getMessage(char* messageId) {
         "SELECT id, text FROM public.messages WHERE id = $1;";
     const char* params[] = { messageId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
-    struct Message* message = (struct Message*)malloc(sizeof(struct Message));
-    message->id = NULL;
+    struct Message* message = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK){
+        message = (struct Message*)malloc(sizeof(struct Message));
         message->id = PQgetvalue(res, 0, 0);
         message->text = PQgetvalue(res, 0, 1);
     }
@@ -320,13 +323,15 @@ struct MessageList* getMessages(char* fromId, char* toId) {
         "FROM msgs JOIN public.messages ON msgs.message_id = messages.id;";
     const char* params[] = { fromId, toId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
-    struct MessageList* messages = (struct MessageList*)malloc(sizeof(struct MessageList*));
-    messages->count = -1;
+    struct MessageList* messages = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        messages = (struct MessageList*)malloc(sizeof(struct MessageList*));
         messages->count = PQntuples(res);
         messages->list = (struct Message**)calloc(messages->count, sizeof(struct Message*));
-        for(int i = 0; i < messages->count; i += 1)
+        for(int i = 0; i < messages->count; i += 1) {
+            messages->list[i] = (struct Message*)malloc(sizeof(struct Message));
             fillMessage(messages->list[i], i, res);
+        }
     }
     PQclear(res);
     return messages;
@@ -344,7 +349,8 @@ char* saveMessage(struct Message* message) {
         PQclear(res);
         message->id = messageId;
         struct Message* msg = resendMesssage(message);
-        messageDestructor(msg);
+        if (msg != NULL)
+            messageDestructor(msg);
     }
     PQclear(res);
     return messageId;
@@ -363,7 +369,7 @@ int removeMessage(struct Message* message) {
 
 struct Message* resendMesssage(struct Message* message) {
     struct Message* resentMessage = getMessage(message->id);
-    if (resentMessage->id == NULL)
+    if (resentMessage == NULL)
         return resentMessage;
     const char* query =
         "INSERT INTO public.sent_messages(message_id, from_id, to_id) "
@@ -372,8 +378,10 @@ struct Message* resendMesssage(struct Message* message) {
     PGresult* res = PQexecParams(conn, query, 3, NULL, params, NULL, NULL, 0);
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
-    if (outcome == 1)
-        resentMessage->id = NULL;
+    if (outcome == 1) {
+        messageDestructor(resentMessage);
+        resentMessage = NULL;
+    }
     return resentMessage;
 }
 #pragma endregion

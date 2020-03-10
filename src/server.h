@@ -20,5 +20,6 @@ enum ServerOperations {
 
 enum ServerResponses {
     SUCCESS,
-    FAILURE
+    FAILURE,
+    RESTRICTED
 };

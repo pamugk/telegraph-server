@@ -47,6 +47,17 @@ char* doRecieveStr(int sockfd) {
     return str;
 }
 
+struct Group* doRecieveGroup(int nsock) {
+    struct Group* group = (struct Group*) malloc(sizeof(struct Group));
+	group->id = doRecieveStr(nsock);
+	group->creatorId = doRecieveStr(nsock);
+	group->name = doRecieveStr(nsock);
+    recv(nsock, &group->countOfParticipants, sizeof(int), 0);
+    for (int i = 0; i < group->countOfParticipants; i += 1)
+        group->participants[i] = doRecieveStr(nsock);
+	return group;
+}
+
 struct Message* doRecieveMessage(int nsock, int recieveHeaderOnly) {
 	struct Message* message = (struct Message*) malloc(sizeof(struct Message));
 	message->id = doRecieveStr(nsock);
@@ -75,6 +86,39 @@ int doSendStr(int nsock, const char* str) {
 	return 0;
 }
 
+int doSendGroup(int nsock, struct Group* group) {
+	doSendStr(nsock, group->id);
+	doSendStr(nsock, group->creatorId);
+	doSendStr(nsock, group->name);
+    send(nsock, &group->countOfParticipants, sizeof(int), 0);
+    for (int i = 0; i < group->countOfParticipants; i += 1)
+        doSendStr(nsock, group->participants[i]);
+	return 0;
+}
+
+int doSendGroups(int nsock, struct GroupList* groups) {
+    send(nsock, &groups->count, sizeof(int), 0);
+    for (int i = 0; i < groups->count; i += 1)
+        doSendGroup(nsock, groups->list[i]);
+    return 0;
+}
+
+int doSendMessage(int nsock, struct Message* message, int sendHeaderOnly) {
+	doSendStr(nsock, message->id);
+	doSendStr(nsock, message->fromId);
+	doSendStr(nsock, message->toId);
+    if (sendHeaderOnly == 0)
+	    doSendStr(nsock, message->text);
+	return 0;
+}
+
+int doSendMessages(int nsock, struct MessageList* messages) {
+    send(nsock, &messages->count, sizeof(int), 0);
+    for (int i = 0; i < messages->count; i += 1)
+        doSendMessage(nsock, messages->list[i], 0);
+    return 0;
+}
+
 int doSendUser(int nsock, struct User* user) {
 	doSendStr(nsock, user->id);
 	doSendStr(nsock, user->phone);
@@ -84,71 +128,220 @@ int doSendUser(int nsock, struct User* user) {
 	doSendStr(nsock, user->biography);
 	return 0;
 }
+
+int doSendUsers(int nsock, struct UserList* users) {
+    send(nsock, &users->count, sizeof(int), 0);
+    for (int i = 0; i < users->count; i += 1)
+        doSendUser(nsock, users->list[i]);
+    return 0;
+}
 #pragma endregion
 #pragma region Server functions
-void srvAddContact(int nsock) {
-
-}
-
-void srvAddUserToGroup(int nsock) {
-
-}
-
-void srvClearHistory(int nsock) {
-
-}
-
-void srvCreateGroup(int nsock) {
-
-}
-
-void srvDisconnect(int nsock) {
-	printf("Disconnecting...\n");
-	close(nsock);
-}
-
-void srvGetContacts(int nsock) {
-
-}
-
-void srvGetGroupInfo(int nsock) {
-
-}
-
-void srvGetMessages(int nsock) {
-
-}
-
-void srvGetUser(int nsock) {
-
-}
-
-void srvGetUserGroups(int nsock) {
-
-}
-
-int srvLogin(int nsock) {
-	printf("Logging in...\n");
-	char* userId = calloc(37, sizeof(char));
-	int res = recv(nsock, userId, 37 * sizeof(char), 0);
-	if (res == -1) {
-		perror("recv");
-		free(userId);
-		return 1;
-	}
-	struct User* user = getUser(userId);
-	free(userId);
-	enum ServerResponses response = 
-		user->id == NULL ? FAILURE : SUCCESS;
-	res = send(nsock, &response, sizeof(enum ServerResponses), 0);
-	if (res == -1) {
+int srvAddContact(int nsock) {
+	printf("Adding contact.\n");
+	char* userId = doRecieveStr(nsock);
+    char* contactId = doRecieveStr(nsock);
+    enum ServerResponses response = 
+		addToContacts(userId, contactId) == 0 ? SUCCESS : FAILURE;
+    free(userId);
+	free(contactId);
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
         perror("send");
 		return 1;
     }
 	if (response == SUCCESS)
-		doSendUser(nsock, user);
-	userDestructor(user);
+        printf("Done.\n");
+    else
+    	printf("Failure\n");
+    return 0;
+}
+
+int srvAddUserToGroup(int nsock) {
+	printf("Adding user to group.\n");
+	char* groupId = doRecieveStr(nsock);
+    char* userId = doRecieveStr(nsock);
+    enum ServerResponses response = addUserToGroup(groupId, userId) == 0 ? SUCCESS : FAILURE;
+    free(groupId);
+	free(userId);
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		return 1;
+    }
+	if (response == SUCCESS)
+        printf("Done.\n");
+    else
+    	printf("Failure\n");
+    return 0;
+}
+
+int srvClearHistory(int nsock) {
+	printf("Clearing history of messages.\n");
+    char* fromId = doRecieveStr(nsock);
+    char* toId = doRecieveStr(nsock);
+    enum ServerResponses response = clearHistory(fromId, toId) == 0 ? SUCCESS : FAILURE;
+    free(fromId);
+	free(toId);
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		return 1;
+    }
+	if (response == SUCCESS)
+        printf("Done.\n");
+    else
+    	printf("Failure\n");
+    return 0;
+}
+
+int srvCreateGroup(int nsock) {
+	printf("Creating a new group.\n");
+	struct Group* group = doRecieveGroup(nsock);
+	char* createdGroupId = createGroup(group);
+	groupDestructor(group);
+    enum ServerResponses response = createdGroupId == NULL ? FAILURE : SUCCESS;
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	if (res == -1) {
+		perror("send");
+		free(createdGroupId);
+		return 1;
+	}
+    if (response == SUCCESS) {
+        doSendStr(nsock, createdGroupId);
+        printf("Done.\n");
+		free(createdGroupId);
+    }
+	else
+    	printf("Failure.\n");
 	return 0;
+}
+
+int srvGetContacts(int nsock) {
+	printf("Collecting contacts.\n");
+    char* userId = doRecieveStr(nsock);
+    struct UserList* contacts = getContacts(userId);
+    free(userId);
+	enum ServerResponses response = contacts == NULL ? FAILURE : SUCCESS; 
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		if (contacts != NULL)
+			userListDestructor(contacts);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendUsers(nsock, contacts);
+		userListDestructor(contacts);
+	}
+    return 0;
+}
+
+int srvGetGroupInfo(int nsock) {
+	printf("Getting group info.\n");
+    char* groupId = doRecieveStr(nsock);
+    struct Group* group = getGroupInfo(groupId);
+    enum ServerResponses response = group == NULL ? FAILURE : SUCCESS;
+	free(groupId);
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		groupDestructor(group);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendGroup(nsock, group);
+		groupDestructor(group);
+	}
+	return 0;
+}
+
+int srvGetMessages(int nsock) {
+	printf("Collecting messages.\n");
+    char* fromId = doRecieveStr(nsock);
+    char* toId = doRecieveStr(nsock);
+    struct MessageList* messages = getMessages(fromId, toId);
+    free(fromId);
+	free(toId);
+	enum ServerResponses response = messages == NULL ? FAILURE : SUCCESS; 
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		if (messages != NULL)
+			messageListDestructor(messages);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendMessages(nsock, messages);
+		messageListDestructor(messages);
+	}
+    return 0;
+}
+
+int srvGetUser(int nsock) {
+	printf("Getting a user.\n");
+	char* userId = doRecieveStr(nsock);
+	struct User* user = getUser(userId);
+	free(userId);
+	enum ServerResponses response = user == NULL ? FAILURE : SUCCESS;
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	if (res == -1) {
+        perror("send");
+		if (user != NULL)
+			userDestructor(user);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendUser(nsock, user);
+		userDestructor(user);
+	}
+	return 0;
+}
+
+int srvGetUserGroups(int nsock) {
+	printf("Collecting groups.\n");
+    char* userId = doRecieveStr(nsock);
+    struct GroupList* groups = getUserGroups(userId);
+    free(userId);
+	enum ServerResponses response = groups == NULL ? FAILURE : SUCCESS; 
+    int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+    if (res == -1) {
+        perror("send");
+		if (groups != NULL)
+			groupListDestructor(groups);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendGroups(nsock, groups);
+		groupListDestructor(groups);
+	}
+    return 0;
+}
+
+int srvLogin(int nsock) {
+	printf("Logging in...\n");
+	char* userId = doRecieveStr(nsock);
+	struct User* user = getUser(userId);
+	free(userId);
+	enum ServerResponses response = 
+		user == NULL ? FAILURE : SUCCESS;
+	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	if (res == -1) {
+        perror("send");
+		if (user != NULL)
+			userDestructor(user);
+		return 1;
+    }
+	if (response == SUCCESS) {
+		doSendUser(nsock, user);
+		userDestructor(user);
+	}
+	return 0;
+}
+
+void srvLogout(int nsock) {
+	printf("Disconnecting...\n");
+	close(nsock);
 }
 
 int srvRegisterUser(int nsock) {
@@ -229,8 +422,9 @@ int srvResendMessage(int nsock) {
 	printf("Resending a message.\n");
     struct Message* message = doRecieveMessage(nsock, 1);
     struct Message* msg = resendMesssage(message);
-    enum ServerResponses response = msg->id == NULL ? FAILURE : SUCCESS;
-	messageDestructor(msg);
+    enum ServerResponses response = msg == NULL ? FAILURE : SUCCESS;
+	if (msg != NULL)
+		messageDestructor(msg);
 	messageDestructor(message);
 	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
     if (res == -1) {
@@ -292,7 +486,7 @@ void handleClient(int nsock) {
 			srvCreateGroup(nsock);
 			break;
 		case DISCONNECT:
-			srvDisconnect(nsock);
+			srvLogout(nsock);
 			break;
 		case GET_CONTACTS:
 			srvGetContacts(nsock);
