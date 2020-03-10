@@ -57,6 +57,7 @@ void srvCreateGroup(int nsock) {
 
 void srvDisconnect(int nsock) {
 	printf("Disconnecting...\n");
+	close(nsock);
 }
 
 void srvGetContacts(int nsock) {
@@ -79,16 +80,30 @@ void srvGetUserGroups(int nsock) {
 
 }
 
-void srvLogin(int nsock) {
+int srvLogin(int nsock) {
 	printf("Logging in...\n");
 	char* userId = calloc(37, sizeof(char));
-	recv(nsock, userId, 37 * sizeof(char), 0);
+	int res = recv(nsock, userId, 37 * sizeof(char), 0);
+	if (res == -1) {
+		perror("recv");
+		return 1;
+	}
 	struct User user = getUser(userId);
 	enum ServerResponses response = 
 		user.id == NULL ? FAILURE : SUCCESS;
-	send(nsock, &response, sizeof(enum ServerResponses), 0);
-	if (response == SUCCESS)
-		send(nsock, &user, sizeof(struct User), 0);
+	res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	if (res == -1) {
+        perror("send");
+		return 1;
+    }
+	if (response == SUCCESS) {
+		res = send(nsock, &user, sizeof(user), 0);
+		if (res == -1) {
+        	perror("send");
+			return 1;
+    	}
+	}
+	return 0;
 }
 
 void srvRegisterUser(int nsock) {
@@ -119,10 +134,13 @@ void srvSendMessage(int nsock) {
 void handleClient(int nsock) {
     enum ServerOperations op;
 	ssize_t size;
+	int res;
     do {
 		size = recv(nsock, &op, sizeof(enum ServerOperations), 0);
-		if (size == -1)
+		if (size == -1) {
+			perror("recv");
 			break;
+		}
 		switch (op)
 		{
 		case ADD_CONTACT:
@@ -156,7 +174,7 @@ void handleClient(int nsock) {
 			srvGetUserGroups(nsock);
 			break;
 		case LOGIN:
-			srvLogin(nsock);
+			res = srvLogin(nsock);
 			break;
 		case REGISTER_USER:
 			srvRegisterUser(nsock);
@@ -181,6 +199,8 @@ void handleClient(int nsock) {
 			op = DISCONNECT;
 			break;
 		}
+		if (res == 1)
+			break;
 		}
 	} while (op != DISCONNECT);
 	close(nsock);
@@ -194,6 +214,7 @@ void doWork(int sockfd) {
 			perror("Accept error");
 			continue;
 		}
+		printf("Accepted a new client.\n");
         pid_t pid = fork();
         if (pid == -1) {
             perror("fork");

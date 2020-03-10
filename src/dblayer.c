@@ -182,8 +182,6 @@ struct User getUser(char* userId) {
         "FROM public.users WHERE id = $1;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
-    if (res == NULL)
-        printf("Something is rotten here\n");
     printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct User user;
     user.id = NULL;

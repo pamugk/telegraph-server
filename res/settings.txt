@@ -1,2 +1,2 @@
-8888
+8080
 postgresql://postgres:4815162342@localhost:5432/telegraph_db
