@@ -550,7 +550,7 @@ void handleClient(int nsock) {
 			res = srvSendMessage(nsock);
 			break;
 		default: {
-			printf("Recieved unknown command");
+			printf("Recieved unknown command\n");
 			op = DISCONNECT;
 			break;
 		}
