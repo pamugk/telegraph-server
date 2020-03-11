@@ -10,14 +10,12 @@ void groupDestructor(struct Group* group) {
     for (int i = 0; i < group->countOfParticipants; i += 1)
         free(group->participants[i]);
     free(group->participants);
-    free(group);
 }
 
 void groupListDestructor(struct GroupList* groupList) {
     for (int i = 0; i < groupList->count; i += 1)
-        groupDestructor(groupList->list[i]);
+        free(groupList->list[i]);
     free(groupList->list);
-    free(groupList);
 }
 
 void messageDestructor(struct Message* message) {
@@ -27,34 +25,29 @@ void messageDestructor(struct Message* message) {
     free(message->fromId);
     if (message->text != NULL)
         free(message->text);
-    free(message);
 }
 
 void messageListDestructor(struct MessageList* messageList) {
     for (int i = 0; i < messageList->count; i += 1)
-        messageDestructor(messageList->list[i]);
+        free(messageList->list[i]);
     free(messageList->list);
-    free(messageList);
 }
 
 void userDestructor(struct User* user) {
     if (user->id != NULL)
         free(user->id);
-    free(user->id);
     free(user->phone);
     free(user->username);
     free(user->name);
     free(user->surname);
     if (user->biography != NULL)
         free(user->biography);
-    free(user);
 }
 
 void userListDestructor(struct UserList* userList) {
     for (int i = 0; i < userList->count; i += 1)
-        userDestructor(userList->list[i]);
+        free(userList->list[i]);
     free(userList->list);
-    free(userList);
 }
 #pragma endregion
 #pragma region Utils
@@ -74,12 +67,12 @@ static void fillMessage(struct Message* message, int i, PGresult* res) {
 }
 
 static void fillUser(struct User* user, int i, PGresult* res) {
-    user->id = PQgetvalue(res, i, 0);
-    user->phone = PQgetvalue(res, i, 1);
-    user->username = PQgetvalue(res, i, 2);
-    user->name = PQgetvalue(res, i, 3);
-    user->surname = PQgetvalue(res, i, 4);
-    user->biography = PQgetvalue(res, i, 5);
+    user->id = PQgetisnull(res, i, 0) ? NULL : PQgetvalue(res, i, 0);
+    user->phone = PQgetisnull(res, i, 1) ? NULL :PQgetvalue(res, i, 1);
+    user->username = PQgetisnull(res, i, 2) ? NULL :PQgetvalue(res, i, 2);
+    user->name = PQgetisnull(res, i, 3) ? NULL :PQgetvalue(res, i, 3);
+    user->surname = PQgetisnull(res, i, 4) ? NULL :PQgetvalue(res, i, 4);
+    user->biography = PQgetisnull(res, i, 5) ? NULL : PQgetvalue(res, i, 5);
 }
 #pragma endregion
 #pragma region DB connection management
@@ -215,11 +208,13 @@ int checkUserDetails(char* userId) {
 struct UserList* getContacts(char* userId) {
     const char* query =
         "WITH ctcts AS "
-            "(SELECT contact_id FROM public.contacts WHERE userId = $1) "
+            "(SELECT contact_id FROM public.contacts WHERE user_id = $1) "
         "SELECT id, phone, username, name, surname, biography "
-        "FROM ctcts JOIN public.users ON contact_id = users.id;";
+        "FROM ctcts JOIN public.users ON contact_id = users.id "
+        "ORDER BY name, surname;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct UserList* users = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         users = (struct UserList*)malloc(sizeof(struct UserList));

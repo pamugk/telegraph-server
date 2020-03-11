@@ -40,10 +40,15 @@ int setupServer(struct Settings s) {
 #pragma endregion
 #pragma region Auxillary functions
 char* doRecieveStr(int sockfd) {
-    int size = 0;
-    recv(sockfd, &size, sizeof(int), 0);
-    char* str = calloc(size, sizeof(char));
-    recv(sockfd, str, size * sizeof(char), 0);
+    int8_t isNull;
+	int res = recv(sockfd, &isNull, sizeof(int8_t), 0);
+    char* str = NULL;
+	if (isNull != 0) {
+        size_t size;
+        recv(sockfd, &size, sizeof(size_t), 0);
+        str = calloc(size, sizeof(char));
+        recv(sockfd, str, size * sizeof(char), 0);
+	}
     return str;
 }
 
@@ -79,10 +84,24 @@ struct User* doRecieveUser(int sockfd) {
     return user;
 }
 
+
 int doSendStr(int nsock, const char* str) {
-	int size = strlen(str);
-	send(nsock, &size, sizeof(int), 0);
-	send(nsock, str, size * sizeof(char), 0);
+    int res = 0;
+    int8_t isNull = str == NULL ? 0 : 1;
+	res = send(nsock, &isNull, sizeof(int8_t), 0);
+	if (isNull != 0) {
+		size_t size = strlen(str) + 1;
+		res = send(nsock, &size, sizeof(size_t), 0);
+        if (res == -1){
+            perror("send");
+            return 1;
+        }
+		res = send(nsock, str, size * sizeof(char), 0);
+        if (res == -1){
+            perror("send");
+            return 1;
+        }
+	}
 	return 0;
 }
 
@@ -130,7 +149,8 @@ int doSendUser(int nsock, struct User* user) {
 }
 
 int doSendUsers(int nsock, struct UserList* users) {
-    send(nsock, &users->count, sizeof(int), 0);
+    printf("Sending users\n");
+	send(nsock, &(users->count), sizeof(int), 0);
     for (int i = 0; i < users->count; i += 1)
         doSendUser(nsock, users->list[i]);
     return 0;
@@ -233,6 +253,7 @@ int srvGetContacts(int nsock) {
 	if (response == SUCCESS) {
 		doSendUsers(nsock, contacts);
 		userListDestructor(contacts);
+		free(contacts);
 	}
     return 0;
 }
@@ -321,6 +342,7 @@ int srvGetUserGroups(int nsock) {
 int srvLogin(int nsock) {
 	printf("Logging in...\n");
 	char* userId = doRecieveStr(nsock);
+	printf("%s\n", userId);
 	struct User* user = getUser(userId);
 	free(userId);
 	enum ServerResponses response = 
@@ -334,8 +356,11 @@ int srvLogin(int nsock) {
     }
 	if (response == SUCCESS) {
 		doSendUser(nsock, user);
-		userDestructor(user);
+		free(user);
+		printf("Done\n");
 	}
+	else
+		printf("FAILURE\n");
 	return 0;
 }
 
@@ -474,34 +499,34 @@ void handleClient(int nsock) {
 		switch (op)
 		{
 		case ADD_CONTACT:
-			srvAddContact(nsock);
+			res = srvAddContact(nsock);
 			break;
 		case ADD_USER_TO_GROUP:
-			srvAddUserToGroup(nsock);
+			res = srvAddUserToGroup(nsock);
 			break;
 		case CLEAR_HISTORY:
-			srvClearHistory(nsock);
+			res = srvClearHistory(nsock);
 			break;
 		case CREATE_GROUP:
-			srvCreateGroup(nsock);
+			res = srvCreateGroup(nsock);
 			break;
 		case DISCONNECT:
 			srvLogout(nsock);
 			break;
 		case GET_CONTACTS:
-			srvGetContacts(nsock);
+			res = srvGetContacts(nsock);
 			break;
 		case GET_GROUP_INFO:
-			srvGetGroupInfo(nsock);
+			res = srvGetGroupInfo(nsock);
 			break;
 		case GET_MESSAGES:
-			srvGetMessages(nsock);
+			res = srvGetMessages(nsock);
 			break;
 		case GET_USER:
-			srvGetUser(nsock);
+			res = srvGetUser(nsock);
 			break;
 		case GET_USER_GROUPS:
-			srvGetUserGroups(nsock);
+			res = srvGetUserGroups(nsock);
 			break;
 		case LOGIN:
 			res = srvLogin(nsock);
