@@ -1,5 +1,147 @@
 #include "main.h"
 
+#pragma region Multithreading management
+static int semaphoreId;
+
+static unsigned long long countOfConnectedUsers;
+static unsigned long long maxCountOfConnectedUsers;
+static char** connectedUsers;
+static int* connectedSockets;
+int limitReached;
+
+void sendShutdownNotification(int, enum ServerNotifications);
+
+static void lockSemaphore() {
+	struct sembuf sem_lock;
+	sem_lock.sem_num = 0;
+	sem_lock.sem_op = -1;
+	semop(semaphoreId, &sem_lock, 1);
+}
+
+static void freeSemaphore() {
+	struct sembuf sem_lock;
+	sem_lock.sem_num = 0;
+	sem_lock.sem_op = 1;
+	int res = semop(semaphoreId, &sem_lock, 1);
+}
+
+void setupSemaphores() {
+	printf("Setting up semaphore\n");
+	int key = ftok(".",'q');
+	semaphoreId = semget(key, 1, 0666 | IPC_EXCL);
+	if (semaphoreId == -1){
+		semctl(semaphoreId, IPC_RMID, 0);
+		semaphoreId = semget(key, 1, 0666 | IPC_EXCL);
+	}
+	freeSemaphore();
+	printf("%d\n", semaphoreId);
+}
+
+void stopServer(int sig) {
+	printf("Shutting the server down.\n");
+	lockSemaphore();
+	for (unsigned long long i = 0ULL; i < countOfConnectedUsers; i += 1ULL) {
+		free(connectedUsers[i]);
+		sendShutdownNotification(connectedSockets[i], SHUTDOWN);
+	}
+	free(connectedUsers);
+	free(connectedSockets);
+	freeSemaphore();
+	semctl(semaphoreId, IPC_RMID, 0);
+	printf("Server is down, long live the server.\n");
+	exit(0);
+}
+
+void sendShutdownNotification(int nsock, enum ServerNotifications notification) {
+	send(nsock, &notification, sizeof(enum ServerNotifications), 0);
+	if (close(nsock) == -1)
+		perror("close");
+}
+
+int sendNotificationToUser(char* userId, enum ServerNotifications notification, void* data) {
+	lockSemaphore();
+	unsigned long long i = 0ULL;
+	for (i; i < countOfConnectedUsers; i += 1ULL)
+		if (strcmp(connectedUsers[i], userId) == 0)
+			break;
+	if (i == countOfConnectedUsers)
+		return 1;
+	int outcome = 0;
+	switch (notification)
+	{
+	case NEW_MESSAGE:
+	{
+		send(connectedSockets[i], &notification, sizeof(enum ServerNotifications), 0);
+		doSendMessage(connectedSockets[i], (struct Message*)data, 0);
+		break;
+	}
+	default:
+		printf("Some unknown notification type\n");
+		outcome = 1;
+		break;
+	}
+	freeSemaphore();
+	return outcome;
+}
+
+int addNewCallback(char* userId, int notifierSocket) {
+	lockSemaphore();
+	if (countOfConnectedUsers == maxCountOfConnectedUsers) {
+		if (limitReached == 1)
+			return 1;
+		unsigned long long newMaxCount = maxCountOfConnectedUsers * 2ULL;
+		limitReached = newMaxCount == ULLONG_MAX ? 1 : 0;
+		char** expandedUsers = (char**)calloc(newMaxCount, sizeof(char*));
+		int* expandedSockets = (int*)calloc(newMaxCount, sizeof(int));
+		memcpy(expandedUsers, connectedUsers, countOfConnectedUsers * sizeof(char*));
+		memcpy(expandedSockets, connectedSockets, countOfConnectedUsers * sizeof(int));
+		void* tmp;
+		tmp = connectedUsers;
+		connectedUsers = expandedUsers;
+		free(tmp);
+		tmp = connectedSockets;
+		connectedSockets = expandedSockets;
+		free(tmp);
+	}
+	connectedUsers[countOfConnectedUsers] = userId;
+	connectedSockets[countOfConnectedUsers] = notifierSocket;
+	countOfConnectedUsers += 1ULL;
+	freeSemaphore();
+	return 0;
+}
+
+void removeCallback(int notifierSocket) {
+	lockSemaphore();
+	unsigned long long i = 0ULL;
+	sendShutdownNotification(notifierSocket, SHUTDOWN);
+	while (i < countOfConnectedUsers && connectedSockets[i] != notifierSocket) i += 1ULL;
+	if (i == countOfConnectedUsers)
+		return;
+	free(connectedUsers[i]);
+	unsigned long long newCountOfUsers = countOfConnectedUsers - 1ULL;
+	for (i; i < newCountOfUsers; i += 1ULL) {
+		connectedUsers[i] = connectedUsers[i + 1ULL];
+		connectedSockets[i] = connectedSockets[i + 1ULL];
+	}
+	connectedUsers[i] = NULL;
+	connectedSockets[i] = -1;
+	countOfConnectedUsers = newCountOfUsers;
+	freeSemaphore();
+}
+
+void setupMultithreadingPart() {
+	countOfConnectedUsers = 0ULL;
+	maxCountOfConnectedUsers = 256ULL;
+	connectedUsers = (char**)calloc(maxCountOfConnectedUsers, sizeof(char*));
+	connectedSockets = (int*)calloc(maxCountOfConnectedUsers, sizeof(int));
+	limitReached = 0;
+
+	static struct sigaction act;
+	act.sa_handler = stopServer;
+	sigfillset(&(act.sa_mask));
+	sigaction(SIGINT, &act, NULL);
+}
+#pragma endregion
 #pragma region Setup
 struct Settings loadSettings() {
 	printf("Loading settings\n");
@@ -356,7 +498,7 @@ char* srvLogin(int nsock) {
 	return userId;
 }
 
-void srvLogout(int nsock, char* loggedInUserId) {
+void srvLogout(int nsock) {
 	printf("Disconnecting...\n");
 }
 
@@ -437,51 +579,56 @@ int srvResendMessage(int nsock, char* loggedInUserId) {
     struct Message* message = doRecieveMessage(nsock, 1);
     struct Message* msg = resendMesssage(message);
     enum ServerResponses response = msg == NULL ? FAILURE : SUCCESS;
-	if (msg != NULL)
-		messageDestructor(msg);
 	messageDestructor(message);
 	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	int outcome = 0;
     if (res == -1) {
 		perror("send");
-		return 1;
+		outcome = 1;
 	}
-	if (response == SUCCESS)
+	if (response == SUCCESS){
         printf("Done.\n");
+		sendNotificationToUser(msg->toId, NEW_MESSAGE, msg);
+	}
 	else
     	printf("Failure.\n");
-    return 0;
+	if (msg != NULL)
+		messageDestructor(msg);
+    return outcome;
 }
 
 int srvSendMessage(int nsock, char* loggedInUserId) {
 	printf("Sending a message.\n");
     struct Message* message = doRecieveMessage(nsock, 0);
     char* messageId = saveMessage(message);
-	messageDestructor(message);
+	message->id = messageId;
     enum ServerResponses response = messageId == NULL ? FAILURE : SUCCESS;
 	int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
+	int outcome = 0;
     if (res == -1) {
 		perror("send");
-		free(messageId);
-		return 1;
+		outcome = 1;
 	}
 	if (response == SUCCESS) {
 		doSendStr(nsock, messageId);
+		sendNotificationToUser(message->toId, NEW_MESSAGE, message);
         printf("Done.\n");
-		free(messageId);
 	}
 	else
     	printf("Failure.\n");
-    return 0;
+	messageDestructor(message);
+    return outcome;
 }
 #pragma endregion
 #pragma region Serverside
-void handleClient(int nsock) {
+void handleClient(int recieverSocket, int notifierSocket) {
     enum ServerOperations op;
 	ssize_t size;
 	int res;
 	char* userId;
+	int loggedIn = 1;
     do {
-		size = recv(nsock, &op, sizeof(enum ServerOperations), 0);
+		size = recv(recieverSocket, &op, sizeof(enum ServerOperations), 0);
 		if (size == -1) {
 			perror("recv");
 			break;
@@ -489,75 +636,79 @@ void handleClient(int nsock) {
 		switch (op)
 		{
 		case ADD_CONTACT: {
-			res = userId == NULL ? 1 : srvAddContact(nsock, userId);
+			res = userId == NULL ? 1 : srvAddContact(recieverSocket, userId);
 			break;
 		}
 		case ADD_USER_TO_GROUP: {
-			res = userId == NULL ? 1 : srvAddUserToGroup(nsock, userId);
+			res = userId == NULL ? 1 : srvAddUserToGroup(recieverSocket, userId);
 			break;
 		}
 		case CLEAR_HISTORY: {
-			res = userId == NULL ? 1 : srvClearHistory(nsock, userId);
+			res = userId == NULL ? 1 : srvClearHistory(recieverSocket, userId);
 			break;
 		}
 		case CREATE_GROUP: {
-			res = userId == NULL ? 1 : srvCreateGroup(nsock, userId);
+			res = userId == NULL ? 1 : srvCreateGroup(recieverSocket, userId);
 			break;
 		}
 		case DISCONNECT: {
-			srvLogout(nsock, userId);
+			srvLogout(recieverSocket);
 			break;
 		}
 		case GET_CONTACTS: {
-			res = userId == NULL ? 1 : srvGetContacts(nsock, userId);
+			res = userId == NULL ? 1 : srvGetContacts(recieverSocket, userId);
 			break;
 		}
 		case GET_GROUP_INFO: {
-			res = userId == NULL ? 1 : srvGetGroupInfo(nsock, userId);
+			res = userId == NULL ? 1 : srvGetGroupInfo(recieverSocket, userId);
 			break;
 		}
 		case GET_MESSAGES: {
-			res = userId == NULL ? 1 : srvGetMessages(nsock, userId);
+			res = userId == NULL ? 1 : srvGetMessages(recieverSocket, userId);
 			break;
 		}
 		case GET_USER: {
-			res = userId == NULL ? 1 : srvGetUser(nsock, userId);
+			res = userId == NULL ? 1 : srvGetUser(recieverSocket, userId);
 			break;
 		}
 		case GET_USER_GROUPS: {
-			res = userId == NULL ? 1 : srvGetUserGroups(nsock, userId);
+			res = userId == NULL ? 1 : srvGetUserGroups(recieverSocket, userId);
 			break;
 		}
 		case LOGIN: {
-			userId = srvLogin(nsock);
+			userId = srvLogin(recieverSocket);
 			if (userId == NULL)
 				res = 1;
+			else  {
+				loggedIn = 0;
+				addNewCallback(userId, notifierSocket);
+			}
 			break;
 		}
 		case REGISTER_USER: {
-			res = srvRegisterUser(nsock);
+			res = srvRegisterUser(recieverSocket);
 			break;
 		}
 		case REMOVE_GROUP: {
-			res = userId == NULL ? 1 : srvRemoveGroup(nsock, userId);
+			res = userId == NULL ? 1 : srvRemoveGroup(recieverSocket, userId);
 			break;
 		}
 		case REMOVE_MESSAGE: {
-			res = userId == NULL ? 1 : srvRemoveMessage(nsock, userId);
+			res = userId == NULL ? 1 : srvRemoveMessage(recieverSocket, userId);
 			break;
 		}
 		case REMOVE_USER: {
-			res = userId == NULL ? 1 : srvRemoveUser(nsock, userId);
+			res = userId == NULL ? 1 : srvRemoveUser(recieverSocket, userId);
 			if (res == 0)
 				op = DISCONNECT;
 			break;
 		}
 		case RESEND_MESSAGE: {
-			res = userId == NULL ? 1 : srvResendMessage(nsock, userId);
+			res = userId == NULL ? 1 : srvResendMessage(recieverSocket, userId);
 			break;
 		}
 		case SEND_MESSAGE: {
-			res = userId == NULL ? 1 : srvSendMessage(nsock, userId);
+			res = userId == NULL ? 1 : srvSendMessage(recieverSocket, userId);
 			break;
 		}
 		default: {
@@ -569,16 +720,21 @@ void handleClient(int nsock) {
 		if (res == 1)
 			op = DISCONNECT;
 	} while (op != DISCONNECT);
-	if (userId != NULL)
-		free(userId);
-	close(nsock);
+	close(recieverSocket);
+	if (loggedIn == 0)
+		removeCallback(notifierSocket);
 	exit(0);
 }
 
 void doWork(int sockfd) {
 	for (;;) {
-        int nsock = accept(sockfd, NULL, NULL);
-		if (nsock == -1) {
+        int recieverSocket = accept(sockfd, NULL, NULL);
+		if (recieverSocket == -1) {
+			perror("Accept error");
+			continue;
+		}
+		int notifierSocket = accept(sockfd, NULL, NULL);
+		if (notifierSocket == -1) {
 			perror("Accept error");
 			continue;
 		}
@@ -589,8 +745,9 @@ void doWork(int sockfd) {
             continue;
         }
 		if (pid == 0)
-			handleClient(nsock);
-		close(nsock);
+			handleClient(recieverSocket, notifierSocket);
+		close(recieverSocket);
+		close(notifierSocket);
 	}
 }
 #pragma endregion
@@ -598,6 +755,8 @@ void doWork(int sockfd) {
 int main(int argc, char* argv[]) {
     struct Settings s = loadSettings();
     int sockfd = setupServer(s);
+	setupSemaphores();
+	setupMultithreadingPart();
 	connectToDb(s.connStr);
     doWork(sockfd);
 	disconnectFromDb();
