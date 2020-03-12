@@ -1,7 +1,7 @@
 all: telegraph-server
 
 telegraph-server: main.o dblayer.o
-	gcc obj/main.o obj/dblayer.o -lpq -o debug/telegraph-server.exe
+	gcc obj/main.o obj/dblayer.o -lpq -lpthread -lrt -o debug/telegraph-server.exe
 
 main.o: src/main.c
 	gcc -c src/main.c -o ./obj/main.o

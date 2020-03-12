@@ -1,38 +1,16 @@
 #include "main.h"
 
 #pragma region Multithreading management
-static int semaphoreId;
+pthread_mutex_t lock;
 
-static unsigned long long countOfConnectedUsers;
-static unsigned long long maxCountOfConnectedUsers;
-static char** connectedUsers;
-static int* connectedSockets;
-int limitReached;
-
-static void lockSemaphore() {
-	struct sembuf sem_lock;
-	sem_lock.sem_num = 0;
-	sem_lock.sem_op = -1;
-	semop(semaphoreId, &sem_lock, 1);
-}
-
-static void freeSemaphore() {
-	struct sembuf sem_lock;
-	sem_lock.sem_num = 0;
-	sem_lock.sem_op = 1;
-	int res = semop(semaphoreId, &sem_lock, 1);
-}
+unsigned long countOfConnectedUsers;
+unsigned long maxCountOfConnectedUsers;
+char** connectedUsers;
+int* connectedSockets;
+static int limitReached;
 
 void setupSemaphores() {
 	printf("Setting up semaphore\n");
-	semaphoreId = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT | IPC_EXCL);
-	if (semaphoreId == -1) {
-		semctl(semaphoreId, IPC_RMID, 0);
-		semaphoreId = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT | IPC_EXCL);
-		perror("semget");
-		exit(1);
-	}
-	freeSemaphore();
 }
 
 void sendShutdownNotification(int nsock, enum ServerNotifications notification) {
@@ -44,58 +22,65 @@ void sendShutdownNotification(int nsock, enum ServerNotifications notification) 
 }
 
 void stopServer(int sig) {
+	pthread_mutex_lock(&lock);
 	printf("Shutting the server down.\n");
-	lockSemaphore();
-	for (unsigned long long i = 0ULL; i < countOfConnectedUsers; i += 1ULL) {
+	for (int i = 0UL; i < countOfConnectedUsers; i += 1UL) {
 		free(connectedUsers[i]);
 		sendShutdownNotification(connectedSockets[i], SHUTDOWN);
 	}
 	free(connectedUsers);
 	free(connectedSockets);
-	freeSemaphore();
-	semctl(semaphoreId, IPC_RMID, 0);
+	pthread_mutex_unlock(&lock);
 	printf("Server is down, long live the server.\n");
 	exit(0);
 }
 
 int sendNotificationToUser(char* userId, enum ServerNotifications notification, void* data) {
 	printf("Sending notification to user %s\n", userId);
-	lockSemaphore();
-	unsigned long long i = 0ULL;
-	for (i; i < countOfConnectedUsers; i += 1ULL)
+	pthread_mutex_lock(&lock);
+	unsigned long i = 0;
+	for (i; i < countOfConnectedUsers; i += 1UL) {
+		printf("Checking user %s...\n", connectedUsers[i]);
 		if (strcmp(connectedUsers[i], userId) == 0)
 			break;
-	if (i == countOfConnectedUsers)
+	}
+	if (i == countOfConnectedUsers) {
+		printf("Target not found\n");
 		return 1;
+	}
 	int outcome = 0;
 	switch (notification)
 	{
-	case NEW_MESSAGE:
-	{
-		send(connectedSockets[i], &notification, sizeof(enum ServerNotifications), 0);
-		doSendMessage(connectedSockets[i], (struct Message*)data, 0);
-		break;
+		case NEW_MESSAGE:
+		{
+			printf("Sending notification about new message to \n");
+			send(connectedSockets[i], &notification, sizeof(enum ServerNotifications), 0);
+			doSendMessage(connectedSockets[i], (struct Message*)data, 0);
+			break;
+		}
+		default: {
+			printf("Some unknown notification type\n");
+			outcome = 1;
+			break;
+		}
 	}
-	default:
-		printf("Some unknown notification type\n");
-		outcome = 1;
-		break;
-	}
-	freeSemaphore();
-	printf("Done\n");
+	pthread_mutex_unlock(&lock);
+	printf("Dong\n");
 	return outcome;
 }
 
 int addNewCallback(char* userId, int notifierSocket) {
 	printf("Adding a new callback\n");
-	lockSemaphore();
+	pthread_mutex_lock(&lock);
+	printf("Current count of users: %u\n", countOfConnectedUsers);
 	if (countOfConnectedUsers == maxCountOfConnectedUsers) {
 		if (limitReached == 1)
 			return 1;
-		unsigned long long newMaxCount = maxCountOfConnectedUsers * 2ULL;
-		limitReached = newMaxCount == ULLONG_MAX ? 1 : 0;
+		unsigned long newMaxCount = maxCountOfConnectedUsers * 2UL;
+		limitReached = newMaxCount == ULONG_MAX ? 1 : 0;
 		char** expandedUsers = (char**)calloc(newMaxCount, sizeof(char*));
 		int* expandedSockets = (int*)calloc(newMaxCount, sizeof(int));
+		pthread_t* expandedThreads= (pthread_t*)calloc(newMaxCount, sizeof(pthread_t));
 		memcpy(expandedUsers, connectedUsers, countOfConnectedUsers * sizeof(char*));
 		memcpy(expandedSockets, connectedSockets, countOfConnectedUsers * sizeof(int));
 		void* tmp;
@@ -108,36 +93,37 @@ int addNewCallback(char* userId, int notifierSocket) {
 	}
 	connectedUsers[countOfConnectedUsers] = userId;
 	connectedSockets[countOfConnectedUsers] = notifierSocket;
-	countOfConnectedUsers += 1ULL;
-	freeSemaphore();
-	printf("Done\n");
+	countOfConnectedUsers += 1UL;
+	printf("New count of users: %u\n", countOfConnectedUsers);
+	pthread_mutex_unlock(&lock);
+	printf("Donk\n");
 	return 0;
 }
 
 void removeCallback(int notifierSocket) {
 	printf("Removing a callback\n");
-	lockSemaphore();
-	unsigned long long i = 0ULL;
+	pthread_mutex_lock(&lock);
+	unsigned long i = 0;
 	sendShutdownNotification(notifierSocket, SHUTDOWN);
-	while (i < countOfConnectedUsers && connectedSockets[i] != notifierSocket) i += 1ULL;
+	while (i < countOfConnectedUsers && connectedSockets[i] != notifierSocket) i += 1;
 	if (i == countOfConnectedUsers)
 		return;
 	free(connectedUsers[i]);
-	unsigned long long newCountOfUsers = countOfConnectedUsers - 1ULL;
-	for (i; i < newCountOfUsers; i += 1ULL) {
-		connectedUsers[i] = connectedUsers[i + 1ULL];
-		connectedSockets[i] = connectedSockets[i + 1ULL];
+	unsigned long newCountOfUsers = countOfConnectedUsers - 1;
+	for (i; i < newCountOfUsers; i += 1) {
+		connectedUsers[i] = connectedUsers[i + 1];
+		connectedSockets[i] = connectedSockets[i + 1];
 	}
 	connectedUsers[i] = NULL;
 	connectedSockets[i] = -1;
 	countOfConnectedUsers = newCountOfUsers;
-	freeSemaphore();
-	printf("Done\n");
+	pthread_mutex_unlock(&lock);
+	printf("Donq\n");
 }
 
 void setupMultithreadingPart() {
-	countOfConnectedUsers = 0ULL;
-	maxCountOfConnectedUsers = 256ULL;
+	countOfConnectedUsers = 0;
+	maxCountOfConnectedUsers = 256;
 	connectedUsers = (char**)calloc(maxCountOfConnectedUsers, sizeof(char*));
 	connectedSockets = (int*)calloc(maxCountOfConnectedUsers, sizeof(int));
 	limitReached = 0;
@@ -627,14 +613,21 @@ int srvSendMessage(int nsock, char* loggedInUserId) {
 }
 #pragma endregion
 #pragma region Serverside
-void handleClient(int recieverSocket, int notifierSocket) {
+struct sockets {
+	int recieverSocket;
+	int notifierSocket;
+};
+
+void* handleClient(void *vargp) {
+	pthread_detach(pthread_self());
     enum ServerOperations op;
+	struct sockets sockets = *(struct sockets*)vargp;
 	ssize_t size;
 	int res;
 	char* userId;
 	int loggedIn = 1;
     do {
-		size = recv(recieverSocket, &op, sizeof(enum ServerOperations), 0);
+		size = recv(sockets.recieverSocket, &op, sizeof(enum ServerOperations), 0);
 		if (size == -1) {
 			perror("recv");
 			break;
@@ -642,79 +635,79 @@ void handleClient(int recieverSocket, int notifierSocket) {
 		switch (op)
 		{
 		case ADD_CONTACT: {
-			res = userId == NULL ? 1 : srvAddContact(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvAddContact(sockets.recieverSocket, userId);
 			break;
 		}
 		case ADD_USER_TO_GROUP: {
-			res = userId == NULL ? 1 : srvAddUserToGroup(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvAddUserToGroup(sockets.recieverSocket, userId);
 			break;
 		}
 		case CLEAR_HISTORY: {
-			res = userId == NULL ? 1 : srvClearHistory(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvClearHistory(sockets.recieverSocket, userId);
 			break;
 		}
 		case CREATE_GROUP: {
-			res = userId == NULL ? 1 : srvCreateGroup(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvCreateGroup(sockets.recieverSocket, userId);
 			break;
 		}
 		case DISCONNECT: {
-			srvLogout(recieverSocket);
+			srvLogout(sockets.recieverSocket);
 			break;
 		}
 		case GET_CONTACTS: {
-			res = userId == NULL ? 1 : srvGetContacts(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvGetContacts(sockets.recieverSocket, userId);
 			break;
 		}
 		case GET_GROUP_INFO: {
-			res = userId == NULL ? 1 : srvGetGroupInfo(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvGetGroupInfo(sockets.recieverSocket, userId);
 			break;
 		}
 		case GET_MESSAGES: {
-			res = userId == NULL ? 1 : srvGetMessages(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvGetMessages(sockets.recieverSocket, userId);
 			break;
 		}
 		case GET_USER: {
-			res = userId == NULL ? 1 : srvGetUser(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvGetUser(sockets.recieverSocket, userId);
 			break;
 		}
 		case GET_USER_GROUPS: {
-			res = userId == NULL ? 1 : srvGetUserGroups(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvGetUserGroups(sockets.recieverSocket, userId);
 			break;
 		}
 		case LOGIN: {
-			userId = srvLogin(recieverSocket);
+			userId = srvLogin(sockets.recieverSocket);
 			if (userId == NULL)
 				res = 1;
 			else  {
 				loggedIn = 0;
-				addNewCallback(userId, notifierSocket);
+				addNewCallback(userId, sockets.notifierSocket);
 			}
 			break;
 		}
 		case REGISTER_USER: {
-			res = srvRegisterUser(recieverSocket);
+			res = srvRegisterUser(sockets.recieverSocket);
 			break;
 		}
 		case REMOVE_GROUP: {
-			res = userId == NULL ? 1 : srvRemoveGroup(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvRemoveGroup(sockets.recieverSocket, userId);
 			break;
 		}
 		case REMOVE_MESSAGE: {
-			res = userId == NULL ? 1 : srvRemoveMessage(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvRemoveMessage(sockets.recieverSocket, userId);
 			break;
 		}
 		case REMOVE_USER: {
-			res = userId == NULL ? 1 : srvRemoveUser(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvRemoveUser(sockets.recieverSocket, userId);
 			if (res == 0)
 				op = DISCONNECT;
 			break;
 		}
 		case RESEND_MESSAGE: {
-			res = userId == NULL ? 1 : srvResendMessage(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvResendMessage(sockets.recieverSocket, userId);
 			break;
 		}
 		case SEND_MESSAGE: {
-			res = userId == NULL ? 1 : srvSendMessage(recieverSocket, userId);
+			res = userId == NULL ? 1 : srvSendMessage(sockets.recieverSocket, userId);
 			break;
 		}
 		default: {
@@ -726,10 +719,10 @@ void handleClient(int recieverSocket, int notifierSocket) {
 		if (res == 1)
 			op = DISCONNECT;
 	} while (op != DISCONNECT);
-	close(recieverSocket);
+	close(sockets.recieverSocket);
 	if (loggedIn == 0)
-		removeCallback(notifierSocket);
-	exit(0);
+		removeCallback(sockets.notifierSocket);
+	pthread_exit(NULL);
 }
 
 void doWork(int sockfd) {
@@ -745,15 +738,14 @@ void doWork(int sockfd) {
 			continue;
 		}
 		printf("Accepted a new client.\n");
-        pid_t pid = fork();
-        if (pid == -1) {
-            perror("fork");
-            continue;
-        }
-		if (pid == 0)
-			handleClient(recieverSocket, notifierSocket);
-		close(recieverSocket);
-		close(notifierSocket);
+
+    	pthread_t tid;
+		struct sockets sockets;
+		sockets.recieverSocket = recieverSocket;
+		sockets.notifierSocket = notifierSocket;
+		int res = pthread_create(&tid, NULL, handleClient, (void *)&sockets);
+		if (res == -1)
+			perror("pthread_create");
 	}
 }
 #pragma endregion

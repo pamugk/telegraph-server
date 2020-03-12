@@ -2,12 +2,14 @@
 #include "dblayer.h"
 #include <limits.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <sched.h> 
+#include <semaphore.h> 
 #include "server.h"
 #include "settings.h"
 #include <signal.h>
 #include <stdio.h>
 #include <sys/ipc.h>
-#include <sys/sem.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
