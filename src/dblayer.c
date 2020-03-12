@@ -225,6 +225,8 @@ struct UserList* getContacts(char* userId) {
             fillUser(users->list[i], i, res);
         }
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return users;
 }
@@ -241,6 +243,8 @@ struct User* getUser(char* userId) {
         user = (struct User*)malloc(sizeof(struct User));
         fillUser(user, 0, res);
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return user;
 }
@@ -339,6 +343,7 @@ char* saveMessage(struct Message* message) {
 	        "VALUES ($1) RETURNING id;";
     const char* params[] = { message->text };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* messageId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         messageId = PQgetvalue(res, 0, 0);
@@ -348,6 +353,8 @@ char* saveMessage(struct Message* message) {
         if (msg != NULL)
             messageDestructor(msg);
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return messageId;
 }

@@ -454,7 +454,7 @@ int srvResendMessage(int nsock, char* loggedInUserId) {
 
 int srvSendMessage(int nsock, char* loggedInUserId) {
 	printf("Sending a message.\n");
-    struct Message* message = doRecieveMessage(nsock, 1);
+    struct Message* message = doRecieveMessage(nsock, 0);
     char* messageId = saveMessage(message);
 	messageDestructor(message);
     enum ServerResponses response = messageId == NULL ? FAILURE : SUCCESS;
