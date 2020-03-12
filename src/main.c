@@ -418,8 +418,7 @@ int srvRemoveMessage(int nsock, const char* loggedInUserId) {
 
 int srvRemoveUser(int nsock, const char* loggedInUserId) {
     printf("Removing a user.\n");
-    char* userId = doRecieveStr(nsock);
-    enum ServerResponses response = removeUser(userId) == 0 ? SUCCESS : FAILURE;
+    enum ServerResponses response = removeUser(loggedInUserId) == 0 ? SUCCESS : FAILURE;
     int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
     if (res == -1) {
 		perror("send");
@@ -430,7 +429,6 @@ int srvRemoveUser(int nsock, const char* loggedInUserId) {
     }
 	else
     	printf("Failure.\n");
-	free(userId);
 	return 0;
 }
 
@@ -550,6 +548,8 @@ void handleClient(int nsock) {
 		}
 		case REMOVE_USER: {
 			res = userId == NULL ? 1 : srvRemoveUser(nsock, userId);
+			if (res == 0)
+				op = DISCONNECT;
 			break;
 		}
 		case RESEND_MESSAGE: {
