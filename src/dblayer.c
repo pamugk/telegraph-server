@@ -339,23 +339,26 @@ struct MessageList* getMessages(char* fromId, char* toId) {
 
 char* saveMessage(struct Message* message) {
     const char* query = 
-        "INSERT INTO public.messages(text) "
-	        "VALUES ($1) RETURNING id;";
+        "INSERT INTO public.messages(text) VALUES ($1) RETURNING messages.id;";
     const char* params[] = { message->text };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
     printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* messageId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         messageId = PQgetvalue(res, 0, 0);
+        message->id = calloc(strlen(messageId), sizeof(char));
+        strcpy(message->id, messageId);
+        messageId = message->id;
         PQclear(res);
-        message->id = messageId;
         struct Message* msg = resendMesssage(message);
         if (msg != NULL)
-            messageDestructor(msg);
+            free(msg);
+        message->id = NULL;
     }
-    else
+    else {
         printf("%s\n", PQresultErrorMessage(res));
-    PQclear(res);
+        PQclear(res);
+    }
     return messageId;
 }
 
@@ -379,12 +382,13 @@ struct Message* resendMesssage(struct Message* message) {
 	    "VALUES ($1, $2, $3);";
     const char* params[] = { message->id, message->fromId, message->toId };
     PGresult* res = PQexecParams(conn, query, 3, NULL, params, NULL, NULL, 0);
-    int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
-    PQclear(res);
-    if (outcome == 1) {
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        printf("%s\n", PQresultErrorMessage(res));
         messageDestructor(resentMessage);
         resentMessage = NULL;
     }
+    PQclear(res);
     return resentMessage;
 }
 #pragma endregion
