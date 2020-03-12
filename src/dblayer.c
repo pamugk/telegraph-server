@@ -211,7 +211,7 @@ struct UserList* getContacts(char* userId) {
             "(SELECT contact_id FROM public.contacts WHERE user_id = $1) "
         "SELECT id, phone, username, name, surname, biography "
         "FROM ctcts JOIN public.users ON contact_id = users.id "
-        "ORDER BY name, surname;";
+        "ORDER BY surname, name;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
     printf("%s\n", PQresStatus(PQresultStatus(res)));
@@ -315,7 +315,8 @@ struct MessageList* getMessages(char* fromId, char* toId) {
         "WITH msgs AS (SELECT * FROM public.sent_messages "
             "WHERE (from_id=$1 AND to_id=$2) OR (from_id=$2 AND to_id=$1)) "
         "SELECT id, from_id, to_id, text "
-        "FROM msgs JOIN public.messages ON msgs.message_id = messages.id;";
+        "FROM msgs JOIN public.messages ON msgs.message_id = messages.id "
+        "ORDER BY timestamp;";
     const char* params[] = { fromId, toId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
     struct MessageList* messages = NULL;
