@@ -9,8 +9,6 @@ static char** connectedUsers;
 static int* connectedSockets;
 int limitReached;
 
-void sendShutdownNotification(int, enum ServerNotifications);
-
 static void lockSemaphore() {
 	struct sembuf sem_lock;
 	sem_lock.sem_num = 0;
@@ -27,14 +25,22 @@ static void freeSemaphore() {
 
 void setupSemaphores() {
 	printf("Setting up semaphore\n");
-	int key = ftok(".",'q');
-	semaphoreId = semget(key, 1, 0666 | IPC_EXCL);
-	if (semaphoreId == -1){
+	semaphoreId = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT | IPC_EXCL);
+	if (semaphoreId == -1) {
 		semctl(semaphoreId, IPC_RMID, 0);
-		semaphoreId = semget(key, 1, 0666 | IPC_EXCL);
+		semaphoreId = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT | IPC_EXCL);
+		perror("semget");
+		exit(1);
 	}
 	freeSemaphore();
-	printf("%d\n", semaphoreId);
+}
+
+void sendShutdownNotification(int nsock, enum ServerNotifications notification) {
+	printf("Sending shutdown notification\n");
+	send(nsock, &notification, sizeof(enum ServerNotifications), 0);
+	if (close(nsock) == -1)
+		perror("close");
+	printf("Done\n");
 }
 
 void stopServer(int sig) {
@@ -52,13 +58,8 @@ void stopServer(int sig) {
 	exit(0);
 }
 
-void sendShutdownNotification(int nsock, enum ServerNotifications notification) {
-	send(nsock, &notification, sizeof(enum ServerNotifications), 0);
-	if (close(nsock) == -1)
-		perror("close");
-}
-
 int sendNotificationToUser(char* userId, enum ServerNotifications notification, void* data) {
+	printf("Sending notification to user %s\n", userId);
 	lockSemaphore();
 	unsigned long long i = 0ULL;
 	for (i; i < countOfConnectedUsers; i += 1ULL)
@@ -81,10 +82,12 @@ int sendNotificationToUser(char* userId, enum ServerNotifications notification, 
 		break;
 	}
 	freeSemaphore();
+	printf("Done\n");
 	return outcome;
 }
 
 int addNewCallback(char* userId, int notifierSocket) {
+	printf("Adding a new callback\n");
 	lockSemaphore();
 	if (countOfConnectedUsers == maxCountOfConnectedUsers) {
 		if (limitReached == 1)
@@ -107,10 +110,12 @@ int addNewCallback(char* userId, int notifierSocket) {
 	connectedSockets[countOfConnectedUsers] = notifierSocket;
 	countOfConnectedUsers += 1ULL;
 	freeSemaphore();
+	printf("Done\n");
 	return 0;
 }
 
 void removeCallback(int notifierSocket) {
+	printf("Removing a callback\n");
 	lockSemaphore();
 	unsigned long long i = 0ULL;
 	sendShutdownNotification(notifierSocket, SHUTDOWN);
@@ -127,6 +132,7 @@ void removeCallback(int notifierSocket) {
 	connectedSockets[i] = -1;
 	countOfConnectedUsers = newCountOfUsers;
 	freeSemaphore();
+	printf("Done\n");
 }
 
 void setupMultithreadingPart() {

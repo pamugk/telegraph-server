@@ -6,7 +6,6 @@
 #include "settings.h"
 #include <signal.h>
 #include <stdio.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
 #include <sys/socket.h>
