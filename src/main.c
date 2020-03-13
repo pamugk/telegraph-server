@@ -46,6 +46,7 @@ int sendNotificationToUser(char* userId, enum ServerNotifications notification, 
 	}
 	if (i == countOfConnectedUsers) {
 		printf("Target not found\n");
+		pthread_mutex_unlock(&lock);
 		return 1;
 	}
 	int outcome = 0;
@@ -106,13 +107,16 @@ void removeCallback(int notifierSocket) {
 	unsigned long i = 0;
 	sendShutdownNotification(notifierSocket, SHUTDOWN);
 	while (i < countOfConnectedUsers && connectedSockets[i] != notifierSocket) i += 1;
-	if (i == countOfConnectedUsers)
+	if (i == countOfConnectedUsers) {
+		printf("Removed socket not found\n");
+		pthread_mutex_unlock(&lock);
 		return;
+	}
 	free(connectedUsers[i]);
-	unsigned long newCountOfUsers = countOfConnectedUsers - 1;
-	for (i; i < newCountOfUsers; i += 1) {
-		connectedUsers[i] = connectedUsers[i + 1];
-		connectedSockets[i] = connectedSockets[i + 1];
+	unsigned long newCountOfUsers = countOfConnectedUsers - 1UL;
+	for (i; i < newCountOfUsers; i += 1UL) {
+		connectedUsers[i] = connectedUsers[i + 1UL];
+		connectedSockets[i] = connectedSockets[i + 1UL];
 	}
 	connectedUsers[i] = NULL;
 	connectedSockets[i] = -1;
@@ -122,8 +126,8 @@ void removeCallback(int notifierSocket) {
 }
 
 void setupMultithreadingPart() {
-	countOfConnectedUsers = 0;
-	maxCountOfConnectedUsers = 256;
+	countOfConnectedUsers = 0UL;
+	maxCountOfConnectedUsers = 256UL;
 	connectedUsers = (char**)calloc(maxCountOfConnectedUsers, sizeof(char*));
 	connectedSockets = (int*)calloc(maxCountOfConnectedUsers, sizeof(int));
 	limitReached = 0;

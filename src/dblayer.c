@@ -101,6 +101,7 @@ int addUserToGroup(char* groupId, char* userId) {
 	        "VALUES ($1, $2)";
     const char* params[] = { groupId, userId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -111,6 +112,7 @@ char* createGroup(struct Group* newGroup) {
         "INSERT INTO public.groups(name) VALUES ($1) RETURNING id;";
     const char* params[] = { newGroup->name };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* groupId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         groupId = PQgetvalue(res, 0, 0);
@@ -118,7 +120,10 @@ char* createGroup(struct Group* newGroup) {
         for (int i = 0; i < newGroup->countOfParticipants; i += 1)
             addUserToGroup(groupId, newGroup->participants[i]);
     }
-    PQclear(res);
+    else {
+        printf("%s\n", PQresultErrorMessage(res));
+        PQclear(res);
+    }
     return groupId;
 }
 
@@ -131,6 +136,7 @@ struct Group* getGroupInfo(char* groupId) {
 	    "ON grp.id = group_id;";
     const char* params[] = { groupId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct Group* group = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         group =  (struct Group*) malloc(sizeof(struct Group));
@@ -142,6 +148,8 @@ struct Group* getGroupInfo(char* groupId) {
             group->participants[i] = PQgetvalue(res, i, 2);
         }
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return group;
 }
@@ -151,6 +159,7 @@ struct GroupList* getUserGroups(char* userId) {
         "SELECT group_id FROM users_of_groups WHERE user_id = $1;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct GroupList* groups = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         groups = (struct GroupList*)malloc(sizeof(struct GroupList));
@@ -160,7 +169,10 @@ struct GroupList* getUserGroups(char* userId) {
         for (int i = 0; i < groups->count; i += 1)
             groups->list[i] = getGroupInfo(PQgetvalue(res, i, 0));
     }
-    PQclear(res);
+    else {
+        printf("%s\n", PQresultErrorMessage(res));
+        PQclear(res);
+    }
     return groups;
 }
 
@@ -169,6 +181,7 @@ int removeGroup(char* groupId) {
         "DELETE FROM public.groups WHERE id=$1;";
     const char* params[] = { groupId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -187,6 +200,7 @@ int addToContacts(char* userId, char* contactId) {
         "VALUES($1, $2);";
     const char* params[] = { userId, contactId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -197,6 +211,7 @@ int checkUserDetails(char* userId) {
         "SELECT EXISTS(SELECT * FROM public.users WHERE id=$1);";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = 
         PQresultStatus(res) == PGRES_TUPLES_OK ?
         strcmp(PQgetvalue(res, 0, 0), "true")
@@ -260,9 +275,12 @@ char* registerUser(struct User* user) {
         user->name, user->surname, user->biography 
     };
     PGresult* res = PQexecParams(conn, query, 5, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* generatedId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK)
         generatedId = PQgetvalue(res, 0, 0);
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return generatedId;
 }
@@ -271,6 +289,7 @@ int removeUser(char* userId) {
     const char* query = "DELETE FROM public.users WHERE id=$1;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -282,6 +301,7 @@ int removeFromContacts(char* userId, char* contactId) {
         "WHERE user_id=$1 AND contact_id=$2;";
     const char* params[] = { userId, contactId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -294,6 +314,7 @@ int clearHistory(char* fromId, char* toId) {
         "WHERE from_id=$1 AND to_id=$2 OR from_id=$2 AND to_id=$1;";
     const char* params[] = { fromId, toId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -304,12 +325,15 @@ struct Message* getMessage(char* messageId) {
         "SELECT id, text FROM public.messages WHERE id = $1;";
     const char* params[] = { messageId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct Message* message = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK){
         message = (struct Message*)malloc(sizeof(struct Message));
         message->id = PQgetvalue(res, 0, 0);
         message->text = PQgetvalue(res, 0, 1);
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return message;
 }
@@ -320,9 +344,10 @@ struct MessageList* getMessages(char* fromId, char* toId) {
             "WHERE (from_id=$1 AND to_id=$2) OR (from_id=$2 AND to_id=$1)) "
         "SELECT id, from_id, to_id, text "
         "FROM msgs JOIN public.messages ON msgs.message_id = messages.id "
-        "ORDER BY timestamp;";
+        "ORDER BY msgs.timestamp;";
     const char* params[] = { fromId, toId };
     PGresult* res = PQexecParams(conn, query, 2, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     struct MessageList* messages = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
         messages = (struct MessageList*)malloc(sizeof(struct MessageList*));
@@ -333,6 +358,8 @@ struct MessageList* getMessages(char* fromId, char* toId) {
             fillMessage(messages->list[i], i, res);
         }
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return messages;
 }
@@ -368,6 +395,7 @@ int removeMessage(struct Message* message) {
         "WHERE message_id=$1 AND from_id=$2 AND to_id=$3;";
     const char* params[] = { message->id, message->fromId, message->toId };
     PGresult* res = PQexecParams(conn, query, 3, NULL, params, NULL, NULL, 0);
+    printf("%s\n", PQresStatus(PQresultStatus(res)));
     int outcome = PQresultStatus(res) == PGRES_COMMAND_OK ? 0 : 1;
     PQclear(res);
     return outcome;
@@ -388,6 +416,8 @@ struct Message* resendMesssage(struct Message* message) {
         messageDestructor(resentMessage);
         resentMessage = NULL;
     }
+    else
+        printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
     return resentMessage;
 }
