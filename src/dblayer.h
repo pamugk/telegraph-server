@@ -3,6 +3,13 @@
 #include <string.h>
 
 #pragma region Data model
+struct CharList {
+    int count;
+    char** list;
+};
+
+void charDestructor(struct CharList*);
+
 struct Group {
     char* id;
     char* creatorId;
@@ -61,7 +68,7 @@ int disconnectFromDb();
 int addUserToGroup(char*, char*);
 char* createGroup(struct Group*);
 struct Group* getGroupInfo(char*);
-struct GroupList* getUserGroups(char*);
+struct CharList* getUserGroups(char*);
 int removeGroup(char*);
 
 int addToContacts(char*, char*);

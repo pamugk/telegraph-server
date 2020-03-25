@@ -3,6 +3,12 @@
 static PGconn* conn;
 
 #pragma region Destructors
+void charDestructor(struct CharList* strings) {
+    for (int i = 0; i < strings->count; i += 1)
+        free(strings->list[i]);
+    free(strings->list);
+}
+
 void groupDestructor(struct Group* group) {
     if (group->id != NULL)
         free(group->id);
@@ -10,11 +16,14 @@ void groupDestructor(struct Group* group) {
     for (int i = 0; i < group->countOfParticipants; i += 1)
         free(group->participants[i]);
     free(group->participants);
+    free(group->name);
 }
 
 void groupListDestructor(struct GroupList* groupList) {
-    for (int i = 0; i < groupList->count; i += 1)
+    for (int i = 0; i < groupList->count; i += 1) {
+        groupDestructor(groupList->list[i]);
         free(groupList->list[i]);
+    }
     free(groupList->list);
 }
 
@@ -28,8 +37,10 @@ void messageDestructor(struct Message* message) {
 }
 
 void messageListDestructor(struct MessageList* messageList) {
-    for (int i = 0; i < messageList->count; i += 1)
+    for (int i = 0; i < messageList->count; i += 1) {
+        messageDestructor(messageList->list[i]);
         free(messageList->list[i]);
+    }
     free(messageList->list);
 }
 
@@ -45,12 +56,22 @@ void userDestructor(struct User* user) {
 }
 
 void userListDestructor(struct UserList* userList) {
-    for (int i = 0; i < userList->count; i += 1)
+    for (int i = 0; i < userList->count; i += 1) {
+        userDestructor(userList->list[i]);
         free(userList->list[i]);
+    }
     free(userList->list);
 }
 #pragma endregion
 #pragma region Utils
+static char* copyStr(char* str) {
+    if (str == NULL)
+        return NULL;
+    char* result = calloc(strlen(str), sizeof(char));
+    strcpy(result, str);
+    return result;
+}
+
 static void terminate(int code) {
     if(code != 0)
         fprintf(stderr, "%s\n", PQerrorMessage(conn));
@@ -60,19 +81,19 @@ static void terminate(int code) {
 }
 
 static void fillMessage(struct Message* message, int i, PGresult* res) {
-    message->id = PQgetvalue(res, i, 0);
-    message->fromId = PQgetvalue(res, i, 1);
-    message->toId = PQgetvalue(res, i, 2);
-    message->text = PQgetvalue(res, i, 3);
+    message->id = copyStr(PQgetvalue(res, i, 0));
+    message->fromId = copyStr(PQgetvalue(res, i, 1));
+    message->toId = copyStr(PQgetvalue(res, i, 2));
+    message->text = copyStr(PQgetvalue(res, i, 3));
 }
 
 static void fillUser(struct User* user, int i, PGresult* res) {
-    user->id = PQgetisnull(res, i, 0) ? NULL : PQgetvalue(res, i, 0);
-    user->phone = PQgetisnull(res, i, 1) ? NULL :PQgetvalue(res, i, 1);
-    user->username = PQgetisnull(res, i, 2) ? NULL :PQgetvalue(res, i, 2);
-    user->name = PQgetisnull(res, i, 3) ? NULL :PQgetvalue(res, i, 3);
-    user->surname = PQgetisnull(res, i, 4) ? NULL :PQgetvalue(res, i, 4);
-    user->biography = PQgetisnull(res, i, 5) ? NULL : PQgetvalue(res, i, 5);
+    user->id = copyStr(PQgetvalue(res, i, 0));
+    user->phone = copyStr(PQgetvalue(res, i, 1));
+    user->username = copyStr(PQgetvalue(res, i, 2));
+    user->name = copyStr(PQgetvalue(res, i, 3));
+    user->surname = copyStr(PQgetvalue(res, i, 4));
+    user->biography = copyStr(PQgetvalue(res, i, 5));
 }
 #pragma endregion
 #pragma region DB connection management
@@ -115,7 +136,7 @@ char* createGroup(struct Group* newGroup) {
     printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* groupId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-        groupId = PQgetvalue(res, 0, 0);
+        groupId = copyStr(PQgetvalue(res, 0, 0));
         PQclear(res);
         for (int i = 0; i < newGroup->countOfParticipants; i += 1)
             addUserToGroup(groupId, newGroup->participants[i]);
@@ -129,9 +150,8 @@ char* createGroup(struct Group* newGroup) {
 
 struct Group* getGroupInfo(char* groupId) {
     const char* query = 
-        "WITH grp AS (SELECT id, name "
-	        "FROM public.groups WHERE id=$1)"
-        "SELECT id, name, user_id "
+        "WITH grp AS (SELECT id, creator_id, name FROM public.groups WHERE id=$1 LIMIT 1) "
+        "SELECT id, creator_id, name, user_id "
         "FROM grp JOIN users_of_groups "
 	    "ON grp.id = group_id;";
     const char* params[] = { groupId };
@@ -142,10 +162,12 @@ struct Group* getGroupInfo(char* groupId) {
         group =  (struct Group*) malloc(sizeof(struct Group));
         group->countOfParticipants = PQntuples(res);
         group->participants = (char**)calloc(group->countOfParticipants, sizeof(char*));
-        for(int i = 0; i < group->countOfParticipants; i += 1) {
-            group->id = PQgetvalue(res, i, 0);
-            group->name = PQgetvalue(res, i, 1);
-            group->participants[i] = PQgetvalue(res, i, 2);
+        if (group->countOfParticipants > 0) {
+            group->id = copyStr(PQgetvalue(res, 0, 0));
+            group->creatorId = copyStr(PQgetvalue(res, 0, 1));
+            group->name = copyStr(PQgetvalue(res, 0, 2));
+            for(int i = 0; i < group->countOfParticipants; i += 1)
+                group->participants[i] = copyStr(PQgetvalue(res, i, 3));
         }
     }
     else
@@ -154,20 +176,19 @@ struct Group* getGroupInfo(char* groupId) {
     return group;
 }
 
-struct GroupList* getUserGroups(char* userId) {
+struct CharList* getUserGroups(char* userId) {
     const char* query =
         "SELECT group_id FROM users_of_groups WHERE user_id = $1;";
     const char* params[] = { userId };
     PGresult* res = PQexecParams(conn, query, 1, NULL, params, NULL, NULL, 0);
     printf("%s\n", PQresStatus(PQresultStatus(res)));
-    struct GroupList* groups = NULL;
+    struct CharList* groups = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-        groups = (struct GroupList*)malloc(sizeof(struct GroupList));
+        groups = (struct CharList*)malloc(sizeof(struct CharList));
         groups->count = PQntuples(res);
-        PQclear(res);
-        groups->list = (struct Group**)calloc(groups->count, sizeof(struct Group*));
+        groups->list = calloc(groups->count, sizeof(char**));
         for (int i = 0; i < groups->count; i += 1)
-            groups->list[i] = getGroupInfo(PQgetvalue(res, i, 0));
+            groups->list[i] = copyStr(PQgetvalue(res, i, 0));
     }
     else {
         printf("%s\n", PQresultErrorMessage(res));
@@ -278,7 +299,7 @@ char* registerUser(struct User* user) {
     printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* generatedId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK)
-        generatedId = PQgetvalue(res, 0, 0);
+        generatedId =  copyStr(PQgetvalue(res, 0, 0));
     else
         printf("%s\n", PQresultErrorMessage(res));
     PQclear(res);
@@ -329,8 +350,8 @@ struct Message* getMessage(char* messageId) {
     struct Message* message = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK){
         message = (struct Message*)malloc(sizeof(struct Message));
-        message->id = PQgetvalue(res, 0, 0);
-        message->text = PQgetvalue(res, 0, 1);
+        message->id =  copyStr(PQgetvalue(res, 0, 0));
+        message->text =  copyStr(PQgetvalue(res, 0, 1));
     }
     else
         printf("%s\n", PQresultErrorMessage(res));
@@ -372,10 +393,8 @@ char* saveMessage(struct Message* message) {
     printf("%s\n", PQresStatus(PQresultStatus(res)));
     char* messageId = NULL;
     if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-        messageId = PQgetvalue(res, 0, 0);
-        message->id = calloc(strlen(messageId), sizeof(char));
-        strcpy(message->id, messageId);
-        messageId = message->id;
+        messageId = copyStr(PQgetvalue(res, 0, 0));
+        message->id = messageId;
         PQclear(res);
         struct Message* msg = resendMesssage(message);
         if (msg != NULL)

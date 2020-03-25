@@ -222,7 +222,6 @@ struct User* doRecieveUser(int sockfd) {
     return user;
 }
 
-
 int doSendStr(int nsock, const char* str) {
     int res = 0;
     int8_t isNull = str == NULL ? 0 : 1;
@@ -243,11 +242,17 @@ int doSendStr(int nsock, const char* str) {
 	return 0;
 }
 
+int doSendStrs(int nsock, struct CharList* strings) {
+	send(nsock, &(strings->count), sizeof(int), 0);
+	for (int i = 0; i < strings->count; i+= 1)
+		doSendStr(nsock, strings->list[i]);
+}
+
 int doSendGroup(int nsock, struct Group* group) {
 	doSendStr(nsock, group->id);
 	doSendStr(nsock, group->creatorId);
 	doSendStr(nsock, group->name);
-    send(nsock, &group->countOfParticipants, sizeof(int), 0);
+    send(nsock, &(group->countOfParticipants), sizeof(int), 0);
     for (int i = 0; i < group->countOfParticipants; i += 1)
         doSendStr(nsock, group->participants[i]);
 	return 0;
@@ -270,7 +275,7 @@ int doSendMessage(int nsock, struct Message* message, int sendHeaderOnly) {
 }
 
 int doSendMessages(int nsock, struct MessageList* messages) {
-    send(nsock, &messages->count, sizeof(int), 0);
+    send(nsock, &(messages->count), sizeof(int), 0);
     for (int i = 0; i < messages->count; i += 1)
         doSendMessage(nsock, messages->list[i], 0);
     return 0;
@@ -451,18 +456,18 @@ int srvGetUser(int nsock, char* loggedInUserId) {
 
 int srvGetUserGroups(int nsock, char* loggedInUserId) {
 	printf("Collecting groups.\n");
-    struct GroupList* groups = getUserGroups(loggedInUserId);
-	enum ServerResponses response = groups == NULL ? FAILURE : SUCCESS; 
+    struct CharList* groupIds = getUserGroups(loggedInUserId);
+	enum ServerResponses response = groupIds == NULL ? FAILURE : SUCCESS; 
     int res = send(nsock, &response, sizeof(enum ServerResponses), 0);
     if (res == -1) {
         perror("send");
-		if (groups != NULL)
-			groupListDestructor(groups);
+		if (groupIds != NULL)
+			charDestructor(groupIds);
 		return 1;
     }
 	if (response == SUCCESS) {
-		doSendGroups(nsock, groups);
-		groupListDestructor(groups);
+		doSendStrs(nsock, groupIds);
+			charDestructor(groupIds);
 	}
     return 0;
 }
@@ -726,7 +731,7 @@ void* handleClient(void *vargp) {
 	close(sockets.recieverSocket);
 	if (loggedIn == 0)
 		removeCallback(sockets.notifierSocket);
-	pthread_exit(NULL);
+	//pthread_exit(NULL);
 }
 
 void doWork(int sockfd) {
